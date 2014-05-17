@@ -12,7 +12,7 @@ space, the hamiltonian is then diagonalized and the results are written to file.
 using namespace std;
 using namespace arma;
 
-int constructHamiltonian(mat &mH, int nparticles, int nNumSPS);
+int constructHamiltonian(mat &mH, int nparticles, int nNumSPS, vec vHmap);
 
 int main()
 {
@@ -22,20 +22,32 @@ int main()
 
     const int nNumSP=12;
     const int nParticles=2;
-    const int nParticleHoleEx=1;
+    const int nParticleHoleEx=2;
 
     if (nParticleHoleEx > nParticles)
     {
         cout<<"Error in system definition: cannot have more particle hole excitations than particles.";
         return 1;
     }
-    // calculate size of the hamiltonian
-    int hsize=0;
 
-    for(int iii=0; iii<=nParticleHoleEx;iii++)
+    //will hold the number of many body states associated with a given particle and hole number
+    vec vHmap;
+    vHmap.ones(nParticleHoleEx+1);
+
+    // calculate size of the hamiltonian
+    int hsize=1;
+
+    for(int iii=1; iii<=nParticleHoleEx; iii++)
     {
-        hsize+=choose(nNumSP-nParticles,iii)*choose(nParticles,nParticles-iii);
+        vHmap(iii)=permute(nNumSP-nParticles,iii)*permute(nParticles,nParticles-iii);
+        cout<< nNumSP-nParticles << "P" << iii << " is: "<<permute(nNumSP-nParticles,iii)<<"\n";
+        cout<< nParticles<<"P" << iii << " is: " <<permute(nParticles,nParticles-iii)<<"\n";
+       // vHmap(iii)=pow((nParticles*(nNumSP-nParticles)),iii);
+        hsize+=vHmap(iii);
     }
+
+    cout<<vHmap<<"\n";
+
     //Initializing hamiltonian
     cout<<"Initializing hamiltonian of size: "<< hsize << "x" << hsize <<"...\n";
     mat mhamiltonian;
@@ -44,7 +56,7 @@ int main()
 
     //call constructhamiltonian to fill mhamiltonian with correct number of
     //matrix elements
-    constructHamiltonian(mhamiltonian,nParticles,nNumSP);
+    constructHamiltonian(mhamiltonian,nParticles,nNumSP, vHmap);
     cout<<"Successfully constructed hamiltonian.\n";
 
     //output the hamiltonian matrix to file
@@ -102,10 +114,11 @@ int main()
 }
 
 
-// construct hamiltonian matrix for the 2 electron quantum dot with the
+/* construct hamiltonian matrix for the 2 electron quantum dot with the
 //specified ground state and # of particle hole excitations, in the
-//harmonic oscillator basis.
-int constructHamiltonian(mat &mH, int nparticles, int nNumSPS)
+harmonic oscillator basis.*/
+
+int constructHamiltonian(mat &mH, int nparticles, int nNumSPS, vec vHmap)
 {
     //Read in the interaction matrix elements
     cout<<"Opening file MatrixElements.dat.\n";
@@ -150,7 +163,7 @@ int constructHamiltonian(mat &mH, int nparticles, int nNumSPS)
     ifstream SPEnergies;
     SPEnergies.open("SPEnergy.dat");
 
-    vec H0(12);
+    vec H0(nNumSPS);
 
     while(SPEnergies)
     {
@@ -159,8 +172,9 @@ int constructHamiltonian(mat &mH, int nparticles, int nNumSPS)
     }
     //Calculate the case of the ground state
     mH(0,0)+=H0(0)+H0(1)+dDMCME[0][1/2][0][1/2];
+/* comment this out because these matrix elements are all zero
 
-    //1p1h to grond state matrix elements. Integer division by two is used to
+    //1p1h to ground state matrix elements. Integer division by two is used to
     //account for spin degeneracy.
     tempi=1;
 
@@ -174,17 +188,16 @@ int constructHamiltonian(mat &mH, int nparticles, int nNumSPS)
             tempi++;
         }
     }
+*/
 
-
-    // this loop calculates the many particle hamiltonian for the case of
-    //1p 1h excitations. Note: loop order is important!
+    /* this loop calculates the many particle hamiltonian for the case of
+    1p 1h excitations. Note: loop order is important!*/
     tempi=1;
     tempj=1;
     for(int iii=0;iii<nparticles; iii++)
     {
         for(int iia= nparticles;iia<nNumSPS; iia++)
         {
-        //12 is the number of single particle states need to account for spin degrees of freedom.
             for(int iij=0;iij<nparticles; iij++)
             {
                 for(int iib=nparticles;iib<nNumSPS; iib++)
@@ -209,6 +222,87 @@ int constructHamiltonian(mat &mH, int nparticles, int nNumSPS)
             tempi++;
         }
     }
+    // ignore matrix elements that connect 2p 2h to GS because they are identically zero
 
-return 0;
+    tempi=1;
+    tempj=1;
+
+    //debugging index
+    tempk=0;
+    //this loop calculates the matrix elements that connect the 1p1h states to the 2p-2h states.
+    for(int iii=0;iii<nparticles; iii++)
+    {
+        for(int iia=nparticles;iia<nNumSPS; iia++)
+        {
+            for(int iij=0;iij<nparticles; iij++)
+            {
+                for(int iib=nparticles;iib<nNumSPS; iib++)
+                {
+                    for(int iik=iii+1;iik<nparticles; iik++)
+                    {
+                        for(int iic=nparticles;iic<nNumSPS; iic++)
+                        {
+                            mH(tempi, tempj)+=
+                                    (kdelta(iij,0)*kdelta(iik,1)-kdelta(iij,1)*kdelta(iik,0))*
+                                    (kdelta(iii,0)*dDMCME[iia/2][1/2][iib/2][iic/2]+kdelta(iii,1)*dDMCME[0][iia/2][iib/2][iic/2]);
+                            //check if any element is nonzero
+                            if(mH(tempi, tempj!=0))
+                            {
+                                tempk++;
+                            }
+
+                            //Take advantage of hermitian nature of hamiltonian
+                            mH(tempj, tempi)+=mH(tempi, tempj);
+                            tempj++;
+                        }
+                    }
+                }
+            }
+            if (tempi==1)
+            {
+                cout<< tempj<<"\n";
+            }
+            tempj=1;
+            tempi++;
+
+        }
+    }
+    cout<<"# of nonzero ME connecting 1p1h to 2p2h is: "<<tempk<<"\n";
+    cout<<"total # of ME in hamiltonian is: "<<mH.n_elem<<"\n";
+
+    //this loop calculates the pure 2p 2h ME
+/* comment out incomplete code
+    int nStart2p2h=sum(vHmap.rows(0,1));
+
+    tempi=nStart2p2h;
+    tempj=tempi;
+
+    for(int iii=0;iii<nparticles;iii++)
+    {
+        for(int iia=nparticles;iia<nNumSPS;iia++)
+        {
+            for(int iij=0;iij<nparticles;iij++)
+            {
+                for(int iib=nparticles;iib<nNumSPS;iib++)
+                {
+                    for(int iik=0;iik<nparticles;iik++)
+                    {
+                        for(int iic=nparticles;iic<nNumSPS;iic++)
+                        {
+                            for(int iil=0;iil<nparticles;iil++)
+                            {
+                                for(int iid=nparticles;iid<nNumSPS;iid++)
+                                {
+                                    tempj++;
+                                }
+                            }
+                        }
+                    }
+                    tempi++;
+                }
+            }
+        }
+    }
+*/
+    return 0;
 }
